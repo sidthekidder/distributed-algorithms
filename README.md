@@ -24,6 +24,8 @@ In case the program shuts down before completing or loops infinitely, the messag
 
 ## LCR (index.html)
 
+https://sidthekidder.github.io/distributed-algorithms/
+
 Open index.html to see LCR running. Edit line 230 in index.html to set any number of nodes.
 
 
