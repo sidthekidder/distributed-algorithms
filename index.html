@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<head>
+  <title>LCR Visualization</title>
+  <script src="raphael.min.js"></script>
+  <style>
+    pre {
+      white-space: pre-wrap;       /* Since CSS 2.1 */
+      white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */
+      white-space: -pre-wrap;      /* Opera 4-6 */
+      white-space: -o-pre-wrap;    /* Opera 7 */
+      word-wrap: break-word;       /* Internet Explorer 5.5+ */
+    }
+    #edgeMatrix {
+      width: 600px;
+      height: 1000px;
+    }
+  </style>
+</head>
+<body>
+  <pre id="edgeMatrix"></pre>
+
+  <svg width="960" height="500">
+  </svg>
+
+  <script type="text/javascript">
+  // util methods
+  String.prototype.replaceAll = function(search, replacement) {
+    var target = this;
+    return target.replace(new RegExp(search, 'g'), replacement)
+  };
+
+  // Raphael JS Visualization
+  var paper = Raphael(0, 0, window.screen.availWidth, window.screen.availHeight)
+
+  // define the graph and nodes
+  function Graph(number) {
+    // network of processes containing nodes and the edges between them
+    this.nodes = []
+    this.edges = []
+
+    // initialize the nodes and the edges
+    // create an array of numbers in random order
+    // use this array for creating nodes and adding edges
+    var arr = []
+    for (var i = 0 ; i < number ; i++) arr.push(i)
+    shuffle(arr)
+    var arr2 = arr.slice(0).reverse()
+
+    for(var i = 0 ; i < number ; i++) {
+      var id1 = arr.pop()
+      // console.log(id1)
+      var node = new Node({id: id1})
+      this.nodes.push(node)
+    }
+
+    this.edges = new Array(number)
+    for(var i = 0 ; i < this.edges.length ; i++) {
+      this.edges[i] = new Array(number)
+      for(var j = 0 ; j < this.edges[i].length ; j++) {
+        this.edges[i][j] = 0
+      }
+    }
+
+    // add all the links in the ring
+    for(var i = 0 ; i < numberOfNodes - 1 ; i++) {
+      var find1 = this.nodes.find(node => node.id == arr2[i])
+      var find2 = this.nodes.find(node => node.id == arr2[i+1])
+      this.addEdge(find1, find2)
+    }
+    var find1 = this.nodes.find(node => node.id == arr2[numberOfNodes - 1])
+    var find2 = this.nodes.find(node => node.id == arr2[0])
+    this.addEdge(find1, find2)
+  }
+
+  Graph.prototype.getNode = function(id) {
+    return this.nodes.find(node => node.id == id)
+  }
+
+  Graph.prototype.addEdge = function(nodeA, nodeB) {
+    // get the id number if sent the node itself
+    if (typeof(nodeA) == 'object') nodeA = nodeA.id
+    if (typeof(nodeB) == 'object') nodeB = nodeB.id
+    
+    // add an empty message between the 2 nodes
+    this.edges[nodeA][nodeB] = {}
+  }
+
+  Graph.prototype.clearEdges = function() {
+    for(var i = 0 ; i < this.edges.length ; i++) {
+      for(var j = 0 ; j < this.edges[i].length ; j++) {
+        if (this.edges[i][j] != 0) {
+          this.edges[i][j] = {}
+        }
+      }
+    }
+  }
+
+  function Node(args) {
+    this.leader = null
+    this.id = args.id
+    this.max_id = this.id
+  }
+
+  // places a message for a node's neighbor in their channel
+  Graph.prototype.SendMessage = function(nodeA, nodeB, msg) {
+    // get the id number if sent the node itself
+    if (typeof(nodeA) == 'object') nodeA = nodeA.id
+    if (typeof(nodeB) == 'object') nodeB = nodeB.id
+    
+    this.edges[nodeA][nodeB] = Object.assign({}, msg)
+  }
+
+  Graph.prototype.isLeaderElected = function() {
+    for(var i = 0 ; i < this.nodes.length ; i++) {
+      if (this.nodes[i].leader != null) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // get the clockwise neighbor for a node
+  Graph.prototype.getNeighbor = function(id) {
+    for(var i = 0 ; i < numberOfNodes ; i++) {
+      if (g.edges[id][i] != 0) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  Node.prototype.msgFunc = function() {
+    var msg = {id: this.max_id}
+    var neighbor = g.getNeighbor(this.id, 1)
+    if (neighbor == -1) return
+    g.edges[this.id][neighbor] = msg
+
+    // increment message progress
+    messagesText.attr('text', "No of Messages: " + ++messagesCount)
+
+    // visualize the message
+    var idx = raphaelCircles.find(circle => circle.id == this.id)
+    if (idx) {
+      idx.msgText.attr('text', 'sending ' + this.max_id)
+    }
+  }
+
+  Node.prototype.transitionFunc = function() {
+    console.log('calling lcr transition for node ' + this.id + ', cur maxId = ' + this.max_id)
+    var msg
+    for(var i = 0 ; i < g.edges.length ; i++) {
+      for(var j = 0 ; j < g.edges[i].length ; j++) {
+        if (j == this.id && g.edges[i][j] != 0) {
+          msg = g.edges[i][j]
+          break
+        }
+      }
+    }
+    if (msg == undefined) return
+
+    if (msg.id > this.max_id) {
+      console.log('discovered new max id ' + msg.id + '! For node ' + this.id + ' prev maxid was ' + this.max_id)
+      this.max_id = msg.id
+      msg_send = {id: msg.id}
+    } else if (msg.id == this.id) {
+      console.log('got my own message back! I must be leader')
+      this.leader = this.id
+    } else {
+      // increment discarded messages count
+      discardedMessagesText.attr('text', "Discarded Messages: " + ++discardedMessagesCount)
+    }
+  }
+
+  var rounds = 0
+  var messagesCount = 0
+  var discardedMessagesCount = 0
+  var roundsText = paper.text(window.screen.width/2, 25, "Starting in 3..2..1..").attr({font: '20px Arial'})
+  var messagesText = paper.text(window.screen.width/2, 50, "Messages Sent: " + messagesCount).attr({font: '16px Arial'})
+  var discardedMessagesText = paper.text(window.screen.width/2, 75, "Messages Discarded: " + discardedMessagesCount).attr({font: '16px Arial'})
+
+  function leaderElectionLoop() {
+    if (g.isLeaderElected() == false) {
+      roundsText.attr('text', "Round " + rounds + " (leader not elected yet)")
+      console.log('round ' + rounds++ + ', leader not elected till now, running 1/2/3/4')
+      // in lock-step synchrony
+      // 1. apply msg generation func for each node
+      // 2. put generated messages in correct channels
+      // 3. apply state transition func for each node with its incoming message
+      // 4. remove all the received messages from channels
+
+      // 1. and 2.
+      for(var i = 0 ; i < g.nodes.length ; i++) {
+        g.nodes[i].msgFunc()
+      }
+
+      // visualize the edges matrix
+      document.getElementById("edgeMatrix").innerHTML = JSON.stringify(g.edges).replaceAll(/],/, '],\n')
+
+      // 3. 
+      for(var i = 0 ; i < g.nodes.length ; i++) {
+        var prev_max_id = g.nodes[i].max_id
+
+        g.nodes[i].transitionFunc()
+        
+        // visualize change in max_id
+        if (prev_max_id != g.nodes[i].max_id) {
+          var idx = raphaelCircles.find(circle => circle.id == g.nodes[i].id)
+          if (idx) {
+            idx.text.attr('text', g.nodes[i].max_id)
+            idx.circle.animate({fill: "red", "stroke-width": 20, "stroke-opacity": 0.5}, 500, function() {
+                this.animate({fill: "green", "stroke-width": 0}, 500)
+              }
+            )
+          }
+        }
+      }
+      // 4. 
+      for(var i = 0 ; i < g.nodes.length ; i++) {
+        g.clearEdges()
+      }
+      // call the loop again every 1 seconds
+      setTimeout(leaderElectionLoop, 2000)
+    } else {
+      roundsText.attr('text', 'Leader is elected after ' +parseInt(rounds-1)+ ' rounds.')
+      console.log('Leader is elected! FINISHED in ' +parseInt(rounds-1)+ ' rounds.')
+    }
+  }
+
+  var numberOfNodes = 10
+  let g = new Graph(numberOfNodes)
+
+  // visualize each node along with its max_id
+  var idx = 200,
+      iBase = window.screen.width/2,
+      jBase = window.screen.height/3 + 50,
+      slice = 2 * Math.PI / g.nodes.length,
+      raphaelCircles = [],
+      center = [iBase, jBase],
+      radius = iBase
+
+  for(var i = 0 ; i < g.nodes.length ; i++) {
+    var horizontal = idx * Math.cos(slice * i) + iBase
+    var vertical = idx * Math.sin(slice * i) + jBase
+
+    var circle = paper.circle(horizontal, vertical, 20)
+      .attr({fill: "green"})
+      .attr({opacity: 0.75})
+
+    var text = paper.text(horizontal, vertical, g.nodes[i].max_id)
+      .attr({font: '14px Arial'})
+
+    var msgText = paper.text(horizontal, vertical+30, '').attr({font: '12px Arial'})
+
+    // store the circle and the text in the array for later modification
+    raphaelCircles.push({id: g.nodes[i].id, circle: circle, text: text, msgText: msgText})
+  }
+  // visualize the edges matrix
+  document.getElementById("edgeMatrix").innerHTML = JSON.stringify(g.edges).replaceAll(/],/, '],\n')
+
+  // console.log('Starting leader election')
+  setTimeout(leaderElectionLoop, 3000)
+
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+</script>
+</body>
+</html>
